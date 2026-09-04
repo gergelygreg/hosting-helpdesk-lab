@@ -2,181 +2,430 @@
 
 ## Cél
 
-A laborkörnyezet célja egy egyszerű, reprodukálható hosting infrastruktúra létrehozása,
-amelyben valósághű L1 helpdesk incidensek előállíthatók, diagnosztizálhatók és
-dokumentálhatók.
+A Hosting Helpdesk Lab célja egy egyszerű, reprodukálható hosting infrastruktúra
+kialakítása, amelyben valósághű L1 helpdesk incidensek állíthatók elő,
+diagnosztizálhatók és dokumentálhatók.
 
-Az MVP nem teljes hosting szolgáltatói infrastruktúrát modellez. A fókusz azon van,
-hogy a domain-, DNS-, HTTP/HTTPS-, web- és Linux/VPS-problémák első szintű
-hibakeresése gyakorolható legyen.
+A projekt nem épít külön virtualizációs és hálózati infrastruktúrát.
+A már működő Manufacturing IT Support Lab homelab-alapjait használja újra.
+
+A két projekt ugyanazt a fizikai/virtuális laborkörnyezetet használhatja,
+de szakmailag és repository szinten különálló marad.
+
+## Kapcsolódó alapinfrastruktúra
+
+A Hosting Helpdesk Lab az alábbi, már meglévő komponensekre épül:
+
+- Windows host
+- Hyper-V
+- PANNON-LAB belső hálózat
+- Windows Server alapú DC01
+- DNS
+- DHCP
+- Windows kliensgépek
+- WSL2
+- Ubuntu
+- Docker
+- Docker Compose
+- Windows host és WSL2 közötti porttovábbítás
+
+A meglévő hálózat:
+
+~~~text
+PANNON-LAB
+192.168.50.0/24
+
+Windows Host / Gateway
+192.168.50.1
+
+DC01
+192.168.50.10
+DNS / DHCP / Active Directory
+~~~
+
+## A két projekt szerepe
+
+### Manufacturing IT Support Lab
+
+A Manufacturing IT Support Lab főként belső vállalati IT support folyamatokat modellez:
+
+- Windows workstation support
+- Active Directory
+- felhasználó- és jogosultságkezelés
+- GPO
+- DHCP
+- DNS
+- hálózati hibakeresés
+- workstation deployment
+- Shop Floor Control támogatás
+- asset management
+- ticketing és eszkaláció
+
+Repository:
+
+https://github.com/gergelygreg/manufacturing-it-support-lab
+
+### Hosting Helpdesk Lab
+
+A Hosting Helpdesk Lab ugyanennek az infrastruktúrának az alapjaira épít,
+de külső hosting ügyféltámogatási helyzeteket modellez:
+
+- domain és DNS
+- webhosting
+- HTTP / HTTPS
+- SSL/TLS
+- e-mailhez kapcsolódó DNS
+- Linux / VPS
+- Nginx
+- SSH
+- hosting incidensek
+- ügyfélkommunikáció
+- tudásbázis
+- L1 → L2 eszkaláció
 
 ## Logikai architektúra
 
 ~~~text
-                    Kliens / Support workstation
-                              |
-               +--------------+--------------+
-               |                             |
-            DNS lookup                    HTTP/HTTPS
-               |                             |
-               v                             v
-          DNS konfiguráció              Linux host
-                                             |
-                                  +----------+----------+
-                                  |                     |
-                               Nginx                  SSH
-                                  |
-                                  v
-                           Webalkalmazás
-                                  |
-                               MariaDB
+                       PANNON-LAB
+                     192.168.50.0/24
+                            |
+          +-----------------+-----------------+
+          |                                   |
+        DC01                         Support workstation
+   192.168.50.10                     Windows kliens
+   DNS / DHCP
+          |
+          | DNS feloldás
+          |
+          v
+   Windows Host
+   192.168.50.1
+          |
+          | port forwarding
+          v
+        WSL2
+   Ubuntu + Docker
+          |
+     +----+-------------------+
+     |                        |
+   Nginx                 későbbi szolgáltatások
+     |                        |
+ HTTP / HTTPS            WordPress / MariaDB
+     |
+     v
+Hosting tesztoldal
 ~~~
 
-## MVP komponensek
+## Infrastruktúra újrahasznosítása
 
-### 1. Support workstation
+A projekt fontos tervezési elve, hogy ne duplikáljuk a már meglévő
+infrastruktúrát.
 
-A hibakeresést végző kliensgép.
+Ezért nem hozunk létre külön:
 
-Feladatai:
+- Hyper-V hostot
+- új Windows Server domain controllert
+- új DHCP-szervert
+- külön alap hálózatot
+- külön Docker hostot
 
-- DNS lekérdezések végrehajtása
-- HTTP/HTTPS elérhetőség ellenőrzése
-- TCP kapcsolat tesztelése
-- SSL/TLS tanúsítvány vizsgálata
-- SSH kapcsolat ellenőrzése
-- hibakeresési eredmények dokumentálása
+Ehelyett a Hosting Helpdesk Lab új szolgáltatási réteget épít a meglévő
+homelab infrastruktúrára.
 
-Használt eszközök:
+## Hosting-specifikus új komponensek
+
+### 1. Hosting DNS névtér
+
+A hosting incidensekhez külön teszt DNS-névtér készül.
+
+Tervezett zóna:
+
+~~~text
+hosting.test
+~~~
+
+Tervezett rekordok például:
+
+~~~text
+web.hosting.test
+www.hosting.test
+mail.hosting.test
+~~~
+
+A `.test` tartomány kizárólag labor- és tesztelési célra használható névtérként
+szolgál a projektben.
+
+A DNS-zóna a meglévő DC01 DNS szolgáltatásán kerül kialakításra.
+
+### 2. Support workstation
+
+A meglévő Windows kliens használható L1 support workstationként.
+
+A kliensről történik:
+
+- DNS hibakeresés
+- TCP kapcsolat ellenőrzése
+- HTTP/HTTPS teszt
+- szolgáltatás-elérhetőség vizsgálata
+- SSL/TLS diagnosztika
+- incidens reprodukció
+- bizonyítékgyűjtés
+
+Tervezett eszközök:
 
 - nslookup
+- ping
+- tracert
+- Test-NetConnection
+- curl
+- böngésző
+- SSH
+
+Linux oldalról később:
+
 - dig
 - curl
-- ping
-- tracert / traceroute
-- Test-NetConnection
 - openssl
 - ssh
 
-### 2. Linux hosting host
+### 3. WSL2 Ubuntu
 
-Az MVP szerveroldali környezete.
-
-Tervezett rendszer:
-
-- Ubuntu Server
+A már meglévő WSL2 Ubuntu környezet lesz a hosting szolgáltatások
+Linux oldali futtatási környezete.
 
 Feladata:
 
-- webszolgáltatás futtatása
-- Nginx reverse proxy / webserver biztosítása
-- SSH hozzáférés
-- alkalmazás- és rendszerlogok biztosítása
-- később WordPress és MariaDB futtatása
+- Docker futtatása
+- Nginx futtatása
+- Linux oldali logok biztosítása
+- HTTP/HTTPS szolgáltatások
+- később további hosting komponensek
 
-### 3. Docker
+### 4. Docker
 
-A szolgáltatások elkülönített és könnyen reprodukálható futtatási környezete.
+A szolgáltatásokat lehetőség szerint Docker konténerekben futtatjuk.
 
-Tervezett konténerek:
+Ennek előnye:
 
-- Nginx
-- később WordPress
-- később MariaDB
+- reprodukálható környezet
+- egyszerű konfiguráció
+- kontrollált hibák előállítása
+- gyors visszaállítás baseline állapotba
+- szolgáltatások elkülönítése
 
-Az MVP első részében csak a szükséges komponenseket vezetjük be.
+Az MVP első szolgáltatása:
 
-### 4. DNS
+~~~text
+Nginx
+~~~
 
-A DNS-réteg segítségével reprodukálhatók például:
+Későbbi komponensek lehetnek:
 
-- hibás A rekord
-- hibás vagy hiányzó MX rekord
-- hibás CNAME rekord
-- később SPF / DKIM / DMARC konfigurációs problémák
-
-A DNS vizsgálat során a kliensoldali diagnosztika a fontos:
-
-- névfeloldás sikeressége
-- visszaadott IP-cím
-- rekord típusa
-- authoritative válasz
-- TTL
-- DNS és alkalmazásszintű hiba elkülönítése
+- WordPress
+- MariaDB
 
 ### 5. Nginx
 
-A labor első webszolgáltatása.
+Az Nginx lesz az MVP első webszolgáltatása.
 
-Felhasználása:
+Feladata:
 
-- HTTP szolgáltatás
-- HTTPS konfiguráció
+- HTTP kiszolgálás
 - statikus tesztoldal
+- HTTPS
 - HTTP státuszkódok vizsgálata
-- logelemzés
-- konfigurációs hibák reprodukálása
+- logok biztosítása
+- kontrollált webes hibák előállítása
 
-### 6. SSL/TLS
+## Baseline állapot
 
-Az SSL/TLS réteg segítségével reprodukálható például:
+Minden incidens előtt szükségünk van egy bizonyítottan működő alapállapotra.
 
-- lejárt tanúsítvány
-- nem megfelelő hostname
-- hibás certificate chain
-- HTTPS konfigurációs probléma
+A baseline útvonal:
 
-Vizsgálati eszközök:
+~~~text
+Support workstation
+        |
+        | DNS query
+        v
+      DC01
+        |
+        | web.hosting.test
+        v
+192.168.50.1
+Windows Host
+        |
+        | port forwarding
+        v
+      WSL2
+        |
+        v
+      Docker
+        |
+        v
+      Nginx
+        |
+        v
+HTTP 200 OK
+~~~
 
+A baseline csak akkor tekinthető működőnek, ha:
+
+- a DNS név feloldható
+- a megfelelő IP-cím kerül visszaadásra
+- a cél TCP port elérhető
+- az Nginx válaszol
+- a tesztoldal böngészőből elérhető
+- `curl` használatával HTTP 200 válasz érkezik
+
+## MVP incidensek
+
+### INC-001 – hibás DNS A rekord
+
+Normál állapot:
+
+~~~text
+web.hosting.test
+        |
+        v
+192.168.50.1
+        |
+        v
+Nginx
+~~~
+
+Hibás állapot:
+
+~~~text
+web.hosting.test
+        |
+        v
+hibás IP-cím
+        |
+        v
+weboldal nem érhető el
+~~~
+
+L1 vizsgálat:
+
+- nslookup
+- DNS rekord ellenőrzése
+- IP-cím ellenőrzése
+- Test-NetConnection
 - curl
-- openssl s_client
+- DNS és webszolgáltatás hibájának elkülönítése
+
+### INC-002 – hibás MX rekord
+
+A második incidens az e-mail szolgáltatáshoz tartozó DNS konfigurációra koncentrál.
+
+Az MVP-ben nem szükséges teljes mail szervert felépíteni.
+
+Vizsgált témák:
+
+- MX rekord
+- cél hostname
+- A rekord
+- DNS-feloldás
+- e-mail routing alapjai
+
+### INC-003 – SSL/TLS probléma
+
+Vizsgált réteg:
+
+- HTTPS
+- SSL/TLS
+- tanúsítvány
+- hostname
+- certificate validation
+
+Diagnosztikai eszközök:
+
 - böngésző
+- curl
+- openssl
 
-## MVP incidensek és architektúra-kapcsolat
+### INC-004 – HTTP 500
 
-| Incidens | Érintett réteg | Elsődleges diagnosztikai eszközök |
-|---|---|---|
-| INC-001 – hibás DNS A rekord | DNS | nslookup, dig, ping, curl |
-| INC-002 – hibás MX rekord | DNS / e-mail | nslookup, dig |
-| INC-003 – SSL/TLS probléma | HTTPS / TLS | curl, OpenSSL |
-| INC-004 – HTTP 500 | Nginx / alkalmazás | curl, Nginx logok |
+Ebben az incidensben:
 
-## Support szemlélet
+- a DNS működik
+- a hálózati kapcsolat működik
+- a webszerver elérhető
+- az alkalmazási réteg HTTP 500 választ ad
 
-Az incidensek vizsgálatánál nem az a cél, hogy azonnal szerveroldali konfigurációt
-módosítsunk.
+A cél annak felismerése, hogy a hiba nem DNS- vagy hálózati eredetű.
 
-Az L1 helpdesk folyamat elsődleges célja:
+L1 feladat:
 
-1. a tünet pontosítása
-2. az érintett szolgáltatási réteg meghatározása
-3. alapvető diagnosztika végrehajtása
-4. bizonyítékok gyűjtése
-5. annak eldöntése, hogy a hiba L1 szinten megoldható-e
-6. megoldás vagy megfelelő eszkaláció
-7. visszaellenőrzés
-8. dokumentáció
+- hiba reprodukálása
+- HTTP státuszkód rögzítése
+- alap logvizsgálat
+- bizonyítékgyűjtés
+- érintett réteg meghatározása
+- megfelelő eszkaláció
 
-## Tervezett megvalósítási sorrend
+## L1 helpdesk folyamat
 
-1. Linux hosting host előkészítése
-2. Docker ellenőrzése
-3. Nginx baseline webszolgáltatás
-4. kliens–szerver kapcsolat ellenőrzése
-5. normál HTTP működés dokumentálása
-6. INC-001 DNS A rekord hiba
-7. INC-002 MX rekord hiba
-8. INC-003 SSL/TLS hiba
-9. INC-004 HTTP 500 hiba
-10. tudásbázis-bejegyzések elkészítése
+Az incidensek vizsgálatakor az első lépés nem a szerverkonfiguráció módosítása.
+
+A követett folyamat:
+
+1. ügyfél hibabejelentésének értelmezése
+2. tünetek pontosítása
+3. érintett szolgáltatás azonosítása
+4. reprodukció
+5. L1 diagnosztika
+6. bizonyítékgyűjtés
+7. érintett technikai réteg meghatározása
+8. L1 szintű megoldás vagy eszkaláció
+9. visszaellenőrzés
+10. ügyfél tájékoztatása
+11. incidens dokumentálása
+12. szükség esetén tudásbázis frissítése
+
+## Repository-határ
+
+A két repository nem duplikálja egymás dokumentációját.
+
+A Manufacturing IT Support Lab tartalmazza a közös alapinfrastruktúra
+részletes felépítését.
+
+A Hosting Helpdesk Lab csak:
+
+- hivatkozik a meglévő homelab alapokra
+- dokumentálja a hosting-specifikus kiegészítéseket
+- tartalmazza a hosting incidenseket
+- tartalmazza a hosting tudásbázist
+- tartalmazza a szükséges konfigurációkat és scripteket
+
+## Módosított megvalósítási sorrend
+
+1. meglévő PANNON-LAB infrastruktúra ellenőrzése
+2. DC01 és DNS működésének ellenőrzése
+3. WSL2 Ubuntu ellenőrzése
+4. Docker működésének ellenőrzése
+5. hosting baseline Nginx szolgáltatás létrehozása
+6. `hosting.test` DNS-zóna létrehozása
+7. `web.hosting.test` normál működésének validálása
+8. baseline dokumentálása
+9. INC-001 – hibás DNS A rekord
+10. INC-002 – hibás MX rekord
+11. INC-003 – SSL/TLS probléma
+12. INC-004 – HTTP 500
+13. tudásbázis-bejegyzések elkészítése
+14. MVP végső validálása
 
 ## MVP sikerkritérium
 
 Az MVP akkor tekinthető elkészültnek, ha:
 
-- működik egy dokumentált baseline webszolgáltatás
+- a meglévő homelab infrastruktúrán működik a hosting szolgáltatás
+- dokumentált a működő baseline állapot
+- a `hosting.test` DNS-névtér működik
 - mind a négy MVP incidens reprodukálható
-- minden incidenshez van diagnosztikai bizonyíték
-- dokumentált a gyökérok és a megoldás
-- minden esetben szerepel eszkalációs döntés
-- legalább két tudásbázis-cikk elkészül
+- minden incidenshez tartozik diagnosztikai bizonyíték
+- minden incidensnél dokumentált a gyökérok
+- minden incidensnél szerepel L1 megoldási vagy eszkalációs döntés
+- a javítások visszaellenőrzése dokumentált
+- legalább két hosting tudásbázis-bejegyzés elkészül
